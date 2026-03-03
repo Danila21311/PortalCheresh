@@ -194,7 +194,7 @@ const UsersTab = () => {
   };
 
   const roleLabel = (r: string) => r === "admin" ? "Администратор" : r === "teacher" ? "Преподаватель" : "Студент";
-  const roleColor = (r: string) => r === "admin" ? "bg-destructive/15 text-destructive" : r === "teacher" ? "bg-primary/15 text-primary" : "bg-success/15 text-success";
+  const roleBadgeClass = "bg-muted text-foreground border-0";
 
   return (
     <div className="glass-card rounded-xl p-6 space-y-4">
@@ -215,7 +215,7 @@ const UsersTab = () => {
                 <TableCell className="font-medium">{u.full_name || "—"}</TableCell>
                 <TableCell>{u.group_name || "—"}</TableCell>
                 <TableCell>
-                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${roleColor(u.role)}`}>
+                  <span className={`text-xs font-medium px-2 py-1 rounded-full ${roleBadgeClass}`}>
                     {roleLabel(u.role)}
                   </span>
                 </TableCell>

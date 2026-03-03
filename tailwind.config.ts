@@ -19,6 +19,8 @@ export default {
     extend: {
       screens: {
         xs: "475px",
+        hd: "1440px",    // 1440px — блок чата и сообщений крупнее до Full HD и выше
+        fullhd: "1920px",
       },
       fontFamily: {
         sans: ["Inter", "sans-serif"],

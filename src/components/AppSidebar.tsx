@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 import { useEffect, useState, useRef } from "react";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, updateDoc, collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc, updateDoc, collection, query, where, getDocs, onSnapshot } from "firebase/firestore";
 import { uploadToCloudinary } from "@/lib/cloudinary";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -64,14 +64,6 @@ const AppSidebar = () => {
           setSidebarImage(p.sidebar_image || "");
           setDisplayName(p.full_name || user.displayName || "");
         }
-
-        const notifQ = query(
-          collection(db, "notifications"),
-          where("user_id", "==", user.id),
-          where("is_read", "==", false)
-        );
-        const notifSnap = await getDocs(notifQ);
-        setUnreadCount(notifSnap.size);
       } catch {
         // ignore errors
       }
@@ -79,6 +71,20 @@ const AppSidebar = () => {
 
     loadProfile();
   }, [user]);
+
+  // Счётчик непрочитанных уведомлений в реальном времени
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid) return;
+
+    const notifQ = query(
+      collection(db, "notifications"),
+      where("user_id", "==", uid),
+      where("is_read", "==", false)
+    );
+    const unsub = onSnapshot(notifQ, (snap) => setUnreadCount(snap.size));
+    return unsub;
+  }, [user?.id]);
 
   const saveSidebarSettings = async (color: string, image: string) => {
     if (!user) return;

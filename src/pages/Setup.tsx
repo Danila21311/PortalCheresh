@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 const accounts = [
   {
-    email: "admin@studhub.ru",
+    email: "admin@cherHub.ru",
     password: "Admin123!",
     full_name: "Администратор Системы",
     role: "admin",
@@ -15,7 +15,7 @@ const accounts = [
     label: "Администратор",
   },
   {
-    email: "teacher@studhub.ru",
+    email: "teacher@cherHub.ru",
     password: "Teacher123!",
     full_name: "Преподаватель Иванов А.С.",
     role: "teacher",
@@ -75,13 +75,13 @@ const Setup = () => {
         <div className="space-y-3 text-sm">
           <div className="rounded-lg border p-3 space-y-1">
             <p className="font-semibold">Администратор</p>
-            <p className="text-muted-foreground">Логин: <span className="font-mono text-foreground">admin@studhub.ru</span></p>
+            <p className="text-muted-foreground">Логин: <span className="font-mono text-foreground">admin@cherHub.ru</span></p>
             <p className="text-muted-foreground">Пароль: <span className="font-mono text-foreground">Admin123!</span></p>
             <p className="text-xs text-muted-foreground mt-1">Полный доступ: управление пользователями, предметами, расписанием, оценками и заданиями</p>
           </div>
           <div className="rounded-lg border p-3 space-y-1">
             <p className="font-semibold">Преподаватель</p>
-            <p className="text-muted-foreground">Логин: <span className="font-mono text-foreground">teacher@studhub.ru</span></p>
+            <p className="text-muted-foreground">Логин: <span className="font-mono text-foreground">teacher@cherHub.ru</span></p>
             <p className="text-muted-foreground">Пароль: <span className="font-mono text-foreground">Teacher123!</span></p>
             <p className="text-xs text-muted-foreground mt-1">Доступ к кабинету преподавателя: просмотр и оценивание работ студентов</p>
           </div>

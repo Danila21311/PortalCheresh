@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { db } from "@/lib/firebase";
 import {
   collection, getDocs, query, where,
@@ -14,7 +15,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Users, Search, Pencil, ImageIcon } from "lucide-react";
+import { Users, Search, Pencil, ImageIcon, ArrowLeft } from "lucide-react";
 import type { Message } from "@/types";
 import type { GroupConversation } from "@/types";
 
@@ -32,6 +33,8 @@ type SelectedConversation =
 
 const Chat = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [groups, setGroups] = useState<GroupConversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<SelectedConversation>(null);
@@ -117,6 +120,26 @@ const Chat = () => {
     load();
   }, [user]);
 
+  // Открытие чата по ссылке из уведомления (?userId=... или ?conversationId=...)
+  useEffect(() => {
+    if (loading || !user) return;
+    const userId = searchParams.get("userId");
+    const conversationId = searchParams.get("conversationId");
+    if (userId) {
+      const contact = contacts.find((c) => c.user_id === userId);
+      if (contact) {
+        setSelectedConversation({ type: "direct", contact });
+      }
+      setSearchParams({}, { replace: true });
+    } else if (conversationId) {
+      const group = groups.find((g) => g.id === conversationId);
+      if (group) {
+        setSelectedConversation({ type: "group", group });
+      }
+      setSearchParams({}, { replace: true });
+    }
+  }, [loading, user, contacts, groups, searchParams, setSearchParams]);
+
   // При смене чата сразу очищаем сообщения, чтобы не показывать переписку из другого диалога
   useEffect(() => {
     setMessages([]);
@@ -174,15 +197,50 @@ const Chat = () => {
 
   const sendMessage = async () => {
     if (!newMessage.trim() || !user || !selectedConversation) return;
+    const content = newMessage.trim();
+    const senderName = user.displayName || user.email || "Пользователь";
+    const preview = content.length > 60 ? content.slice(0, 60) + "…" : content;
     try {
       await addDoc(collection(db, "messages"), {
         sender_id: user.id,
         receiver_id: selectedConversation.type === "direct" ? selectedConversation.contact.user_id : "",
         conversation_id: conversationId,
-        content: newMessage.trim(),
+        content,
         is_read: false,
         created_at: new Date().toISOString(),
       });
+
+      const now = new Date().toISOString();
+      if (selectedConversation.type === "direct") {
+        const receiverId = selectedConversation.contact.user_id;
+        await addDoc(collection(db, "notifications"), {
+          user_id: receiverId,
+          title: `Новое сообщение от ${senderName}`,
+          message: preview,
+          type: "message",
+          is_read: false,
+          created_at: now,
+          sender_id: user.id,
+        });
+      } else {
+        const group = selectedConversation.group;
+        const recipientIds = group.participants.filter((id) => id !== user.id);
+        await Promise.all(
+          recipientIds.map((uid) =>
+            addDoc(collection(db, "notifications"), {
+              user_id: uid,
+              title: `Новое сообщение в группе «${group.name || "Чат"}» от ${senderName}`,
+              message: preview,
+              type: "message",
+              is_read: false,
+              created_at: now,
+              sender_id: user.id,
+              conversation_id: group.id,
+            })
+          )
+        );
+      }
+
       setNewMessage("");
     } catch (err: any) {
       toast.error(err.message);
@@ -356,12 +414,35 @@ const Chat = () => {
       const payload = { chat_bg_color: color, chat_bg_image: image };
       await updateDoc(doc(db, "users", user.id), { [`chat_themes.${conversationId}`]: payload });
       setChatThemes(prev => ({ ...prev, [conversationId]: payload }));
+      await addDoc(collection(db, "messages"), {
+        sender_id: user.id,
+        receiver_id: "",
+        conversation_id: conversationId,
+        content: "",
+        type: "theme_changed",
+        theme_bg_color: color,
+        theme_bg_image: image,
+        is_read: false,
+        created_at: new Date().toISOString(),
+      });
       setChatBgOpen(false);
       toast.success("Фон чата сохранён");
     } catch (err: any) {
       toast.error(err.message);
     } finally {
       setSavingChatBg(false);
+    }
+  };
+
+  const applyThemeToSelf = async (themeBgColor: string, themeBgImage: string) => {
+    if (!user || !conversationId) return;
+    try {
+      const payload = { chat_bg_color: themeBgColor, chat_bg_image: themeBgImage };
+      await updateDoc(doc(db, "users", user.id), { [`chat_themes.${conversationId}`]: payload });
+      setChatThemes(prev => ({ ...prev, [conversationId]: payload }));
+      toast.success("Фон применён");
+    } catch (err: any) {
+      toast.error(err.message);
     }
   };
 
@@ -386,58 +467,63 @@ const Chat = () => {
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <h1 className="text-2xl md:text-3xl font-display font-bold mb-6">Сообщения</h1>
-      <div className="glass-card rounded-xl overflow-hidden flex h-[calc(100vh-200px)] min-h-[400px]">
-        {/* Боковая панель: поиск + контакты и группы */}
-        <div className="w-72 border-r border-border/30 flex flex-col flex-shrink-0">
-          <div className="p-3 border-b border-border/30 space-y-2">
+    <div className="w-full max-w-[100rem] mx-auto px-2 sm:px-4 lg:px-6">
+      <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-bold mb-3 sm:mb-4 lg:mb-6">Сообщения</h1>
+      <div className="glass-card rounded-xl overflow-hidden flex h-[calc(100vh-140px)] sm:h-[calc(100vh-160px)] lg:h-[calc(100vh-180px)] min-h-[360px] sm:min-h-[420px] lg:min-h-[480px]">
+        {/* Боковая панель: до 1024 скрыта при чате; lg 256px → xl 288px → hd 320px */}
+        <div
+          className={cn(
+            "w-full lg:w-64 xl:w-72 min-hd:w-80 border-r border-border/30 flex flex-col flex-shrink-0 transition-[width] duration-200",
+            selectedConversation ? "hidden lg:flex" : "flex"
+          )}
+        >
+          <div className="p-2 sm:p-3 lg:p-3 xl:p-3.5 min-hd:p-4 border-b border-border/30 space-y-2">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 sm:size-4 text-muted-foreground" />
               <Input
                 placeholder="Поиск контакта или группы..."
                 value={contactSearch}
                 onChange={(e) => setContactSearch(e.target.value)}
-                className="pl-8 h-9"
+                className="pl-7 sm:pl-8 h-8 sm:h-9 text-sm"
               />
             </div>
             <Button
               variant="outline"
               size="sm"
-              className="w-full justify-start gap-2"
+              className="w-full justify-start gap-2 text-xs sm:text-sm lg:px-2 xl:px-2.5 min-hd:px-3"
               onClick={() => setCreateGroupOpen(true)}
             >
-              <Users className="size-4" />
-              Создать группу
+              <Users className="size-3.5 sm:size-4 flex-shrink-0" />
+              <span className="truncate">Создать группу</span>
             </Button>
           </div>
           <div className="flex-1 overflow-y-auto">
             {filteredGroups.length > 0 && (
               <div className="p-2">
                 <p className="text-xs font-medium text-muted-foreground px-2 mb-1">Группы</p>
-                {filteredGroups.map((g) => (
+                {                filteredGroups.map((g) => (
                   <button
                     key={g.id}
                     onClick={() => setSelectedConversation({ type: "group", group: g })}
                     className={cn(
-                      "w-full text-left p-3 flex items-center gap-3 hover:bg-secondary/50 transition-colors rounded-lg",
+                      "w-full text-left p-2 sm:p-3 lg:p-2.5 xl:p-3 min-hd:p-3.5 flex items-center gap-2 sm:gap-3 hover:bg-secondary/50 transition-colors rounded-lg",
                       selectedConversation?.type === "group" && selectedConversation.group.id === g.id && "bg-secondary/70"
                     )}
                   >
-                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0">
                       {g.image_url ? (
                         <img src={g.image_url} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <Users className="size-4 text-primary" />
                       )}
                     </div>
-                    <p className="text-sm font-medium truncate">{g.name}</p>
+                    <p className="text-xs xl:text-sm font-medium truncate">{g.name}</p>
                   </button>
                 ))}
               </div>
             )}
-            <div className="p-2">
-              <p className="text-xs font-medium text-muted-foreground px-2 mb-1">Контакты</p>
+            <div className="p-1.5 sm:p-2">
+              <p className="text-xs font-medium text-muted-foreground px-1.5 sm:px-2 mb-1">Контакты</p>
               {filteredContacts.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   {contactSearch ? "Никого не найдено" : "Нет других пользователей"}
@@ -448,20 +534,24 @@ const Chat = () => {
                     key={c.user_id}
                     onClick={() => setSelectedConversation({ type: "direct", contact: c })}
                     className={cn(
-                      "w-full text-left p-3 flex items-center gap-3 hover:bg-secondary/50 transition-colors rounded-lg",
+                      "w-full text-left p-2 sm:p-3 lg:p-2.5 xl:p-3 min-hd:p-3.5 flex items-center gap-2 sm:gap-3 hover:bg-secondary/50 transition-colors rounded-lg",
                       selectedConversation?.type === "direct" && selectedConversation.contact.user_id === c.user_id && "bg-secondary/70"
                     )}
                   >
-                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); navigate(`/profile/${c.user_id}`); }}
+                      className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/50 ring-offset-2 ring-offset-transparent"
+                    >
                       {c.avatar_url ? (
                         <img src={c.avatar_url} alt="" className="w-full h-full object-cover" />
                       ) : (
                         <span className="text-xs font-bold text-primary">{c.full_name?.charAt(0) || "?"}</span>
                       )}
-                    </div>
+                    </button>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium truncate">{c.full_name || "Пользователь"}</p>
-                      {c.email && <p className="text-xs text-muted-foreground truncate">{c.email}</p>}
+                      <p className="text-xs xl:text-sm font-medium truncate">{c.full_name || "Пользователь"}</p>
+                      {c.email && <p className="text-[10px] xl:text-xs text-muted-foreground truncate">{c.email}</p>}
                     </div>
                   </button>
                 ))
@@ -470,36 +560,52 @@ const Chat = () => {
           </div>
         </div>
 
-        {/* Область чата */}
-        <div className="flex-1 flex flex-col min-w-0">
+        {/* Область чата: до 1024px показывается только при выбранном чате, на 1024px+ плейсхолдер при пустом выборе */}
+        <div className={cn("flex-1 flex flex-col min-w-0", !selectedConversation && "hidden lg:flex")}>
           {!selectedConversation ? (
-            <div className="flex-1 flex items-center justify-center p-6">
-              <p className="text-muted-foreground text-center">
+            <div className="flex-1 flex items-center justify-center p-4 sm:p-6">
+              <p className="text-muted-foreground text-center text-sm sm:text-base">
                 Выберите контакт или группу для переписки или создайте новую группу
               </p>
             </div>
           ) : (
             <>
-              <div className="p-3 border-b border-border/30 flex items-center gap-3 flex-shrink-0">
-                <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0">
-                  {isGroup ? (
-                    selectedConversation.group.image_url ? (
+              <div className="p-2 lg:p-3 xl:p-3.5 min-hd:p-4 border-b border-border/30 flex items-center gap-2 xl:gap-3 flex-shrink-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="flex-shrink-0 lg:hidden"
+                  onClick={() => setSelectedConversation(null)}
+                  title="Назад к списку"
+                >
+                  <ArrowLeft className="size-5" />
+                </Button>
+                {isGroup ? (
+                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0">
+                    {selectedConversation.group.image_url ? (
                       <img src={selectedConversation.group.image_url} alt="" className="w-full h-full object-cover" />
                     ) : (
                       <Users className="size-4 text-primary" />
-                    )
-                  ) : (
-                    selectedConversation.type === "direct" && (
-                      selectedConversation.contact.avatar_url ? (
+                    )}
+                  </div>
+                ) : (
+                  selectedConversation.type === "direct" && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/profile/${selectedConversation.contact.user_id}`)}
+                      className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/50 ring-offset-2 ring-offset-transparent"
+                    >
+                      {selectedConversation.contact.avatar_url ? (
                         <img src={selectedConversation.contact.avatar_url} alt="" className="w-full h-full rounded-full object-cover" />
                       ) : (
                         <span className="text-xs font-bold text-primary">
                           {selectedConversation.contact.full_name?.charAt(0) || "?"}
                         </span>
-                      )
-                    )
-                  )}
-                </div>
+                      )}
+                    </button>
+                  )
+                )}
                 {isGroup ? (
                   <button
                     type="button"
@@ -510,7 +616,15 @@ const Chat = () => {
                     <Pencil className="size-3.5 text-muted-foreground flex-shrink-0" />
                   </button>
                 ) : (
-                  <p className="font-medium truncate flex-1">{displayName}</p>
+                  selectedConversation.type === "direct" && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/profile/${selectedConversation.contact.user_id}`)}
+                      className="font-medium truncate flex-1 text-left hover:underline min-w-0"
+                    >
+                      {displayName}
+                    </button>
+                  )
                 )}
                 <Button
                   type="button"
@@ -539,7 +653,7 @@ const Chat = () => {
               )}
 
               <div
-                className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0"
+                className="flex-1 overflow-y-auto p-2 lg:p-3 xl:p-4 min-hd:p-5 space-y-2 lg:space-y-3 xl:space-y-3.5 min-hd:space-y-4 min-h-0"
                 style={(() => {
                   const theme = conversationId ? chatThemes[conversationId] : undefined;
                   const color = theme?.chat_bg_color || "";
@@ -560,20 +674,55 @@ const Chat = () => {
                 {filteredMessages.map((msg) => {
                   const isOwn = msg.sender_id === user?.id;
                   const senderName = isOwn ? "Вы" : (senderNames[msg.sender_id] || "Пользователь");
+                  const senderAvatar = msg.sender_id === user?.id ? null : (contacts.find(c => c.user_id === msg.sender_id)?.avatar_url ?? null);
+
+                  if (msg.type === "theme_changed") {
+                    return (
+                      <div key={msg.id} className="flex flex-col items-center w-full py-1.5 lg:py-2">
+                        <div className="rounded-xl lg:rounded-2xl bg-muted/80 dark:bg-muted/60 px-3 py-2 lg:px-4 lg:py-3 xl:px-4 xl:py-3.5 min-hd:px-5 min-hd:py-4 flex flex-col items-center gap-1.5 lg:gap-2 min-hd:gap-2.5 max-w-[260px] lg:max-w-[270px] xl:max-w-[280px] min-hd:max-w-[300px] border border-border/50">
+                          <div className="w-9 h-9 lg:w-10 lg:h-10 xl:w-11 xl:h-11 min-hd:w-12 min-hd:h-12 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0">
+                            {senderAvatar ? (
+                              <img src={senderAvatar} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-sm lg:text-base xl:text-lg font-bold text-primary">
+                                {(msg.sender_id === user?.id ? (user.displayName || user.email || "Вы") : senderName).charAt(0) || "?"}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs lg:text-sm text-center text-foreground">
+                            {isOwn
+                              ? "Вы установили новые обои в этом чате"
+                              : `${senderName} установил новые обои в этом чате`}
+                          </p>
+                          {!isOwn && (msg.theme_bg_color || msg.theme_bg_image) && (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              className="w-full text-xs lg:text-sm"
+                              onClick={() => applyThemeToSelf(msg.theme_bg_color || "", msg.theme_bg_image || "")}
+                            >
+                              Применить у себя
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div key={msg.id} className={cn("flex flex-col", isOwn ? "items-end" : "items-start")}>
                       {isGroup && !isOwn && (
                         <span className="text-xs text-muted-foreground mb-0.5 px-1">{senderName}</span>
                       )}
-                      <div className={cn("flex w-full max-w-[85%]", isOwn ? "justify-end" : "justify-start")}>
+                      <div className={cn("flex w-full max-w-[90%] lg:max-w-[88%] xl:max-w-[86%] min-hd:max-w-[85%]", isOwn ? "justify-end" : "justify-start")}>
                         <div
                           className={cn(
-                            "w-fit max-w-full px-4 py-2 rounded-2xl text-sm bg-black text-white",
+                            "w-fit max-w-full px-3 py-1.5 lg:px-3.5 lg:py-2 lg:text-sm xl:px-4 xl:py-2 xl:rounded-2xl min-hd:px-5 min-hd:py-2.5 rounded-xl text-xs bg-black text-white",
                             isOwn ? "rounded-br-sm" : "rounded-bl-sm"
                           )}
                         >
                           <p className="whitespace-pre-wrap break-words min-w-0 text-white">{msg.content}</p>
-                          <p className="text-xs mt-1 text-white/80">
+                          <p className="text-[10px] lg:text-xs mt-0.5 lg:mt-1 text-white/80">
                             {(() => {
                             const d = new Date(msg.created_at);
                             const dateStr = `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -589,15 +738,15 @@ const Chat = () => {
                 <div ref={messagesEnd} />
               </div>
 
-              <div className="p-3 border-t border-border/30 flex gap-2 flex-shrink-0">
+              <div className="p-2 lg:p-3 xl:p-3.5 min-hd:p-4 border-t border-border/30 flex gap-1.5 lg:gap-2 flex-shrink-0">
                 <Input
                   value={newMessage}
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Написать сообщение..."
-                  className="flex-1"
+                  className="flex-1 h-9 lg:h-10 xl:h-10 min-hd:h-11 text-sm"
                 />
-                <Button onClick={sendMessage} disabled={!newMessage.trim()}>
+                <Button onClick={sendMessage} disabled={!newMessage.trim()} size="sm" className="flex-shrink-0">
                   Отправить
                 </Button>
               </div>
@@ -673,7 +822,14 @@ const Chat = () => {
           <div className="space-y-4">
             {selectedConversation?.type === "group" && selectedConversation.group.created_by && (
               <div className="text-sm text-muted-foreground">
-                Создатель: <span className="font-medium text-foreground">{getParticipantDisplay(selectedConversation.group.created_by)}</span>
+                Создатель:{" "}
+                <button
+                  type="button"
+                  onClick={() => navigate(selectedConversation.group.created_by === user?.id ? "/profile" : `/profile/${selectedConversation.group.created_by}`)}
+                  className="font-medium text-foreground hover:underline"
+                >
+                  {getParticipantDisplay(selectedConversation.group.created_by)}
+                </button>
               </div>
             )}
             <div>
@@ -682,7 +838,11 @@ const Chat = () => {
                 {selectedConversation?.type === "group" &&
                   selectedConversation.group.participants.map((uid) => (
                     <div key={uid} className="flex items-center gap-3 p-2 rounded-lg bg-secondary/30">
-                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => navigate(uid === user?.id ? "/profile" : `/profile/${uid}`)}
+                        className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-primary/50 ring-offset-2 ring-offset-transparent"
+                      >
                         {getParticipantAvatar(uid) ? (
                           <img src={getParticipantAvatar(uid)!} alt="" className="w-full h-full object-cover" />
                         ) : (
@@ -690,8 +850,14 @@ const Chat = () => {
                             {uid === user?.id ? "Вы" : getParticipantDisplay(uid).charAt(0) || "?"}
                           </span>
                         )}
-                      </div>
-                      <p className="text-sm font-medium truncate flex-1 min-w-0">{getParticipantDisplay(uid)}</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => navigate(uid === user?.id ? "/profile" : `/profile/${uid}`)}
+                        className="text-sm font-medium truncate flex-1 min-w-0 text-left hover:underline"
+                      >
+                        {getParticipantDisplay(uid)}
+                      </button>
                       {isGroupCreator && uid !== user?.id && selectedConversation?.type === "group" && selectedConversation.group.participants.length > 1 && (
                         <Button
                           type="button"

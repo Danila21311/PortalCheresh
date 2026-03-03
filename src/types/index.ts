@@ -85,6 +85,10 @@ export interface Message {
   content: string;
   is_read: boolean;
   created_at: string;
+  /** Системное сообщение о смене фона чата */
+  type?: "theme_changed";
+  theme_bg_color?: string;
+  theme_bg_image?: string;
 }
 
 export interface GroupConversation {
@@ -105,4 +109,8 @@ export interface Notification {
   type: string;
   is_read: boolean;
   created_at: string;
+  /** id отправителя сообщения — для перехода в личный чат */
+  sender_id?: string;
+  /** id группового чата — для перехода в группу */
+  conversation_id?: string;
 }
