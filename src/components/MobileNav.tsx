@@ -2,7 +2,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { db } from "@/lib/firebase";
 import { collection, query, where, onSnapshot } from "firebase/firestore";
 import { Home, Calendar, Star, BookOpen, Bell, MessageSquare, User, Sun, Moon } from "lucide-react";
@@ -22,6 +22,17 @@ const MobileNav = () => {
   const { user } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [unreadCount, setUnreadCount] = useState(0);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Подвести к активному пункту при смене маршрута
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const active = el.querySelector('[data-nav-active="true"]');
+    if (active) {
+      active.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+    }
+  }, [location.pathname]);
 
   // Счётчик непрочитанных в реальном времени
   useEffect(() => {
@@ -38,7 +49,11 @@ const MobileNav = () => {
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur-xl border-t border-border z-50 safe-area-pb">
-      <div className="flex items-center justify-between gap-0.5 min-w-0 px-1 sm:px-2 py-1.5 pb-[env(safe-area-inset-bottom)]">
+      <div
+        ref={scrollRef}
+        className="flex items-center gap-0.5 overflow-x-auto overflow-y-hidden px-2 py-1.5 pb-[env(safe-area-inset-bottom)] scroll-smooth"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.to;
@@ -46,8 +61,9 @@ const MobileNav = () => {
             <NavLink
               key={item.to}
               to={item.to}
+              data-nav-active={isActive ? "true" : undefined}
               className={cn(
-                "relative flex flex-col items-center gap-0.5 py-1.5 px-0.5 sm:px-2 rounded-lg text-xs transition-colors min-w-0 flex-1",
+                "relative flex flex-col items-center gap-0.5 py-1.5 px-2 sm:px-2.5 rounded-lg text-xs transition-colors flex-shrink-0 min-w-[52px] sm:min-w-[56px]",
                 isActive ? "text-primary" : "text-muted-foreground"
               )}
             >
@@ -62,19 +78,19 @@ const MobileNav = () => {
                   </span>
                 )}
               </div>
-              <span className={cn("text-[9px] sm:text-[10px] leading-tight text-center truncate w-full", isActive && "font-semibold")}>{item.label}</span>
+              <span className={cn("text-[9px] sm:text-[10px] leading-tight text-center whitespace-nowrap", isActive && "font-semibold")}>{item.label}</span>
             </NavLink>
           );
         })}
 
         <button
           onClick={toggleTheme}
-          className="flex flex-col items-center gap-0.5 py-1.5 px-0.5 sm:px-2 rounded-lg text-xs text-muted-foreground transition-colors min-w-0 flex-1"
+          className="flex flex-col items-center gap-0.5 py-1.5 px-2 sm:px-2.5 rounded-lg text-xs text-muted-foreground transition-colors flex-shrink-0 min-w-[52px] sm:min-w-[56px]"
         >
           <div className="flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex-shrink-0">
             {theme === "dark" ? <Sun size={18} strokeWidth={1.8} className="sm:w-5 sm:h-5" /> : <Moon size={18} strokeWidth={1.8} className="sm:w-5 sm:h-5" />}
           </div>
-          <span className="text-[9px] sm:text-[10px] leading-tight">{theme === "dark" ? "Светлая" : "Тёмная"}</span>
+          <span className="text-[9px] sm:text-[10px] leading-tight whitespace-nowrap">{theme === "dark" ? "Светлая" : "Тёмная"}</span>
         </button>
       </div>
     </nav>
