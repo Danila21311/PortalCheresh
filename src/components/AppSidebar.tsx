@@ -129,13 +129,13 @@ const AppSidebar = () => {
 
   return (
     <aside
-      className="hidden md:flex flex-col w-64 lg:w-72 bg-primary min-h-screen p-4 text-primary-foreground glass-sidebar relative flex-shrink-0"
+      className="hidden md:flex flex-col w-64 lg:w-72 bg-primary h-screen max-h-screen pt-4 px-4 pb-6 text-primary-foreground glass-sidebar relative flex-shrink-0 overflow-hidden"
       style={sidebarStyle}
     >
       {sidebarImage && <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />}
 
-      <div className="relative z-10 flex flex-col h-full">
-        <div className="flex items-start gap-2 px-3 py-4 mb-6">
+      <div className="relative z-10 flex flex-col h-full min-h-0">
+        <div className="flex items-start gap-2 px-3 py-4 mb-6 flex-shrink-0">
           <div className="w-10 h-10 rounded-lg overflow-hidden bg-white/20 backdrop-blur-sm flex-shrink-0">
             <img src="/logo.png" alt="Logo" className="w-full h-full object-cover" />
           </div>
@@ -152,7 +152,7 @@ const AppSidebar = () => {
           </button>
         </div>
 
-        <nav className="flex-1 space-y-1">
+        <nav className="flex-1 min-h-0 overflow-y-auto space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
@@ -181,7 +181,7 @@ const AppSidebar = () => {
           )}
         </nav>
 
-        <div className="border-t border-white/20 pt-4 mt-4 space-y-2">
+        <div className="border-t border-white/20 pt-4 mt-auto space-y-2 flex-shrink-0">
           <button
             onClick={() => setSettingsOpen(true)}
             className="flex items-center gap-3 w-full text-left px-3 py-2 rounded-lg text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors"

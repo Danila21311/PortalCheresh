@@ -154,8 +154,8 @@ const Profile = () => {
 
         <div className="p-6 space-y-6">
           <div className="flex gap-4 -mt-14">
-            <div className="relative flex-shrink-0">
-              <div className="w-20 h-20 rounded-full bg-primary/20 border-4 border-background flex items-center justify-center overflow-hidden">
+            <div className="relative w-20 h-20 flex-shrink-0">
+              <div className="w-full h-full rounded-full bg-primary/20 border-4 border-background flex items-center justify-center overflow-hidden">
                 {profile.avatar_url ? (
                   <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
@@ -167,7 +167,7 @@ const Profile = () => {
                   <button
                     onClick={() => avatarInput.current?.click()}
                     disabled={uploading}
-                    className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs hover:bg-primary/90 transition-colors"
+                    className="absolute bottom-0 right-0 w-7 h-7 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-md border-2 border-background hover:bg-primary/90 transition-colors"
                   >
                     ✎
                   </button>

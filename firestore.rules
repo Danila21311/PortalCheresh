@@ -1,0 +1,20 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Существующие правила оставьте как есть. Ниже — минимальные правила для статусов в чате.
+
+    // Пользователи: свой документ можно обновлять (для last_seen), чужие — только читать
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow create, update, delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Индикатор «печатает»: участники диалога могут читать и писать свой conversationId
+    match /typing/{conversationId} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Добавьте сюда остальные ваши коллекции (messages, conversations, notifications и т.д.)
+    // если они ещё не описаны в правилах.
+  }
+}

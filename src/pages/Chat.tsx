@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { db } from "@/lib/firebase";
 import {
   collection, getDocs, query, where,
-  addDoc, onSnapshot, updateDoc, doc, getDoc,
+  addDoc, onSnapshot, updateDoc, doc, getDoc, setDoc, serverTimestamp, deleteField,
 } from "firebase/firestore";
 import { useAuth } from "@/hooks/useAuth";
 import { uploadToCloudinary } from "@/lib/cloudinary";
@@ -58,9 +58,12 @@ const Chat = () => {
   const [editChatBgImage, setEditChatBgImage] = useState("");
   const [chatBgOpen, setChatBgOpen] = useState(false);
   const [savingChatBg, setSavingChatBg] = useState(false);
+  const [contactLastSeen, setContactLastSeen] = useState<string | null>(null);
+  const [otherUserTyping, setOtherUserTyping] = useState(false);
   const messagesEnd = useRef<HTMLDivElement>(null);
   const groupImageInputRef = useRef<HTMLInputElement>(null);
   const chatBgImageInputRef = useRef<HTMLInputElement>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const chatBgPresets = [
     { name: "Светлый", value: "hsl(220, 20%, 97%)", isGradient: false },
@@ -140,11 +143,16 @@ const Chat = () => {
     }
   }, [loading, user, contacts, groups, searchParams, setSearchParams]);
 
-  // При смене чата сразу очищаем сообщения, чтобы не показывать переписку из другого диалога
+  // При смене чата очищаем сообщения и индикатор «печатает» в предыдущем диалоге
+  const prevConversationIdRef = useRef<string>("");
   useEffect(() => {
+    if (prevConversationIdRef.current && prevConversationIdRef.current !== conversationId && user) {
+      setDoc(doc(db, "typing", prevConversationIdRef.current), { [user.id]: deleteField() }, { merge: true }).catch(() => {});
+    }
+    prevConversationIdRef.current = conversationId || "";
     setMessages([]);
     setMessageSearch("");
-  }, [conversationId]);
+  }, [conversationId, user]);
 
   // Сообщения в реальном времени (без orderBy в запросе — не нужен составной индекс, сортируем в коде)
   useEffect(() => {
@@ -172,6 +180,74 @@ const Chat = () => {
   useEffect(() => {
     messagesEnd.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Обновляем свой last_seen пока пользователь на странице чата
+  useEffect(() => {
+    if (!user) return;
+    const updatePresence = () => {
+      updateDoc(doc(db, "users", user.id), { last_seen: new Date().toISOString() }).catch(() => {});
+    };
+    updatePresence();
+    const interval = setInterval(updatePresence, 25_000);
+    const onFocus = () => updatePresence();
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [user]);
+
+  // Подписка на last_seen собеседника (только личный чат)
+  const otherUserId = selectedConversation?.type === "direct" ? selectedConversation.contact.user_id : null;
+  useEffect(() => {
+    if (!otherUserId) {
+      setContactLastSeen(null);
+      return () => {};
+    }
+    const unsub = onSnapshot(doc(db, "users", otherUserId), (snap) => {
+      const data = snap.data();
+      setContactLastSeen((data?.last_seen as string) || null);
+    });
+    return unsub;
+  }, [otherUserId]);
+
+  // Подписка на индикатор «печатает» собеседника (только личный чат)
+  const TYPING_THRESHOLD_MS = 5000;
+  useEffect(() => {
+    if (!conversationId || !otherUserId || !user) {
+      setOtherUserTyping(false);
+      return () => {};
+    }
+    const unsub = onSnapshot(doc(db, "typing", conversationId), (snap) => {
+      const data = snap.data();
+      const otherTs = data?.[otherUserId];
+      if (!otherTs) {
+        setOtherUserTyping(false);
+        return;
+      }
+      const t = otherTs?.toMillis?.() ?? new Date(otherTs).getTime();
+      setOtherUserTyping(Date.now() - t < TYPING_THRESHOLD_MS);
+    });
+    return unsub;
+  }, [conversationId, otherUserId, user]);
+
+  // Установка/сброс индикатора «печатает» при вводе сообщения (личный чат)
+  const setTypingIndicator = (isTyping: boolean) => {
+    if (!user || !conversationId || selectedConversation?.type !== "direct") return;
+    const ref = doc(db, "typing", conversationId);
+    if (isTyping) {
+      setDoc(ref, { [user.id]: serverTimestamp() }, { merge: true }).catch(() => {});
+    } else {
+      setDoc(ref, { [user.id]: deleteField() }, { merge: true }).catch(() => {});
+    }
+  };
+  const scheduleClearTyping = () => {
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      setTypingIndicator(false);
+      typingTimeoutRef.current = null;
+    }, 2000);
+  };
 
   const searchLower = contactSearch.trim().toLowerCase();
   const filteredContacts = searchLower
@@ -242,6 +318,7 @@ const Chat = () => {
       }
 
       setNewMessage("");
+      if (selectedConversation?.type === "direct") setTypingIndicator(false);
     } catch (err: any) {
       toast.error(err.message);
     }
@@ -617,13 +694,24 @@ const Chat = () => {
                   </button>
                 ) : (
                   selectedConversation.type === "direct" && (
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/profile/${selectedConversation.contact.user_id}`)}
-                      className="font-medium truncate flex-1 text-left hover:underline min-w-0"
-                    >
-                      {displayName}
-                    </button>
+                    <div className="flex-1 min-w-0 flex flex-col items-start">
+                      <button
+                        type="button"
+                        onClick={() => navigate(`/profile/${selectedConversation.contact.user_id}`)}
+                        className="font-medium truncate text-left hover:underline w-full"
+                      >
+                        {displayName}
+                      </button>
+                      <span className="text-xs text-muted-foreground truncate w-full">
+                        {otherUserTyping
+                          ? "• • • печатает"
+                          : contactLastSeen
+                            ? (Date.now() - new Date(contactLastSeen).getTime() < 60_000
+                                ? "В сети"
+                                : "был(а) недавно")
+                            : "был(а) недавно"}
+                      </span>
+                    </div>
                   )
                 )}
                 <Button
@@ -741,7 +829,13 @@ const Chat = () => {
               <div className="p-2 lg:p-3 xl:p-3.5 min-hd:p-4 border-t border-border/30 flex gap-1.5 lg:gap-2 flex-shrink-0">
                 <Input
                   value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
+                  onChange={(e) => {
+                    setNewMessage(e.target.value);
+                    if (selectedConversation?.type === "direct") {
+                      setTypingIndicator(true);
+                      scheduleClearTyping();
+                    }
+                  }}
                   onKeyDown={handleKeyDown}
                   placeholder="Написать сообщение..."
                   className="flex-1 h-9 lg:h-10 xl:h-10 min-hd:h-11 text-sm"
