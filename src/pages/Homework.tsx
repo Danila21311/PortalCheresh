@@ -201,7 +201,7 @@ const Homework = () => {
                   <div className="flex items-start justify-between gap-2">
                     <p className={cn("font-medium", done && "line-through")}>{hw.title}</p>
                     <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap",
-                      urgent && !done ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground"
+                      urgent && !done ? "bg-destructive/35 text-destructive font-semibold" : "bg-primary/25 text-primary dark:bg-primary/35 dark:text-primary-foreground"
                     )}>
                       до {new Date(hw.due_date).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
                     </span>
@@ -275,11 +275,13 @@ const Homework = () => {
               <Label>Комментарий</Label>
               <Textarea
                 value={comment}
-                onChange={(e) => setComment(e.target.value)}
+                onChange={(e) => setComment(e.target.value.slice(0, 500))}
                 placeholder="Комментарий к работе..."
-                className="mt-1"
+                className="mt-1 resize-none"
                 rows={3}
+                maxLength={500}
               />
+              <p className="text-xs text-muted-foreground mt-1">{comment.length}/500</p>
             </div>
           </div>
           <DialogFooter>

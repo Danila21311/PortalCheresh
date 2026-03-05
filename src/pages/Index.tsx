@@ -179,7 +179,7 @@ const Index = () => {
                         <p className="text-xs text-muted-foreground">{hw.subject_name}</p>
                       </div>
                       <span className={cn("text-xs font-medium px-2.5 py-1 rounded-full",
-                        urgent ? "bg-destructive/15 text-destructive" : "bg-muted text-muted-foreground"
+                        urgent ? "bg-destructive/35 text-destructive font-semibold" : "bg-primary/25 text-primary dark:bg-primary/35 dark:text-primary-foreground"
                       )}>
                         до {new Date(hw.due_date).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}
                       </span>

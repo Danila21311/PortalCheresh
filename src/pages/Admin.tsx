@@ -258,17 +258,27 @@ const UsersTab = () => {
 /* ==================== SUBJECTS ==================== */
 const SubjectsTab = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [teachers, setTeachers] = useState<{ user_id: string; full_name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Subject | null>(null);
-  const [form, setForm] = useState({ name: "", teacher_name: "" });
+  const [form, setForm] = useState({ name: "", teacher_id: "" });
 
   const load = async () => {
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, "subjects"));
-      setSubjects(snap.docs.map(d => ({ id: d.id, ...d.data() } as Subject))
+      const [subSnap, usersSnap] = await Promise.all([
+        getDocs(collection(db, "subjects")),
+        getDocs(collection(db, "users")),
+      ]);
+      setSubjects(subSnap.docs.map(d => ({ id: d.id, ...d.data() } as Subject))
         .sort((a, b) => a.name.localeCompare(b.name)));
+      setTeachers(
+        usersSnap.docs
+          .filter(d => d.data().role === "teacher")
+          .map(d => ({ user_id: d.id, full_name: (d.data().full_name || d.data().email || d.id).toString() }))
+          .sort((a, b) => a.full_name.localeCompare(b.full_name))
+      );
     } catch {
       // ignore errors
     } finally {
@@ -277,17 +287,25 @@ const SubjectsTab = () => {
   };
   useEffect(() => { load(); }, []);
 
-  const openNew = () => { setEditing(null); setForm({ name: "", teacher_name: "" }); setDialogOpen(true); };
-  const openEdit = (s: Subject) => { setEditing(s); setForm({ name: s.name, teacher_name: s.teacher_name }); setDialogOpen(true); };
+  const openNew = () => { setEditing(null); setForm({ name: "", teacher_id: teachers[0]?.user_id || "" }); setDialogOpen(true); };
+  const openEdit = (s: Subject) => {
+    setEditing(s);
+    const teacherId = teachers.find(t => t.full_name === s.teacher_name)?.user_id || teachers[0]?.user_id || "";
+    setForm({ name: s.name, teacher_id: teacherId });
+    setDialogOpen(true);
+  };
 
   const save = async () => {
     if (!form.name.trim()) { toast.error("Введите название предмета"); return; }
+    const teacher_name = teachers.find(t => t.user_id === form.teacher_id)?.full_name ?? "";
+    if (!teacher_name) { toast.error("Выберите преподавателя"); return; }
+    const payload = { name: form.name.trim(), teacher_name };
     try {
       if (editing) {
-        await updateDoc(doc(db, "subjects", editing.id), form);
+        await updateDoc(doc(db, "subjects", editing.id), payload);
         toast.success("Предмет обновлён");
       } else {
-        await addDoc(collection(db, "subjects"), { ...form, created_at: new Date().toISOString() });
+        await addDoc(collection(db, "subjects"), { ...payload, created_at: new Date().toISOString() });
         toast.success("Предмет добавлен");
       }
       setDialogOpen(false);
@@ -337,8 +355,19 @@ const SubjectsTab = () => {
         <DialogContent>
           <DialogHeader><DialogTitle>{editing ? "Редактировать предмет" : "Новый предмет"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <div><Label>Название</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-            <div><Label>Преподаватель</Label><Input value={form.teacher_name} onChange={(e) => setForm({ ...form, teacher_name: e.target.value })} /></div>
+            <div><Label>Название</Label><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value.slice(0, 200) })} maxLength={200} /></div>
+            <div>
+              <Label>Преподаватель</Label>
+              <Select value={form.teacher_id} onValueChange={(v) => setForm({ ...form, teacher_id: v })}>
+                <SelectTrigger><SelectValue placeholder="Выберите преподавателя" /></SelectTrigger>
+                <SelectContent>
+                  {teachers.map((t) => (
+                    <SelectItem key={t.user_id} value={t.user_id}>{t.full_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {teachers.length === 0 && <p className="text-xs text-muted-foreground">Нет пользователей с ролью «Преподаватель»</p>}
+            </div>
           </div>
           <DialogFooter><Button onClick={save}>{editing ? "Сохранить" : "Добавить"}</Button></DialogFooter>
         </DialogContent>
@@ -511,7 +540,14 @@ const GradesTab = () => {
         .sort((a, b) => b.created_at.localeCompare(a.created_at)));
       setSubjects(subSnap.docs.map(d => ({ id: d.id, ...d.data() } as Subject))
         .sort((a, b) => a.name.localeCompare(b.name)));
-      setProfiles(profSnap.docs.map(d => ({ user_id: d.id, full_name: d.data().full_name || "" })));
+      setProfiles(
+        profSnap.docs
+          .filter(d => {
+            const role = d.data().role as string | undefined;
+            return role !== "admin" && role !== "teacher";
+          })
+          .map(d => ({ user_id: d.id, full_name: d.data().full_name || "" }))
+      );
     } catch {
       // ignore errors
     } finally {
@@ -611,8 +647,29 @@ const GradesTab = () => {
                 <SelectContent>{subjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div><Label>Оценка (1-5)</Label><Input type="number" min={1} max={5} value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} /></div>
-            <div><Label>Комментарий</Label><Textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} /></div>
+            <div>
+              <Label>Оценка (1-5)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={5}
+                inputMode="numeric"
+                value={form.grade}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "" || v === "1" || v === "2" || v === "3" || v === "4" || v === "5") setForm({ ...form, grade: v });
+                  else if (v.length > 1) {
+                    const last = v.slice(-1);
+                    if ("12345".includes(last)) setForm({ ...form, grade: last });
+                  }
+                }}
+              />
+            </div>
+            <div>
+              <Label>Комментарий</Label>
+              <Textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value.slice(0, 500) })} maxLength={500} className="resize-none" />
+              <p className="text-xs text-muted-foreground">{form.comment.length}/500</p>
+            </div>
           </div>
           <DialogFooter><Button onClick={save}>{editing ? "Сохранить" : "Добавить"}</Button></DialogFooter>
         </DialogContent>
@@ -747,10 +804,10 @@ const HomeworkTab = () => {
                 <SelectContent>{subjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div><Label>Название</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} /></div>
-            <div><Label>Описание</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
+            <div><Label>Название</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value.slice(0, 200) })} maxLength={200} /></div>
+            <div><Label>Описание</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value.slice(0, 1000) })} maxLength={1000} className="resize-none" /><p className="text-xs text-muted-foreground">{form.description.length}/1000</p></div>
             <div><Label>Срок сдачи</Label><Input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></div>
-            <div><Label>Группа</Label><Input value={form.group_name} onChange={(e) => setForm({ ...form, group_name: e.target.value })} /></div>
+            <div><Label>Группа</Label><Input value={form.group_name} onChange={(e) => setForm({ ...form, group_name: e.target.value.slice(0, 80) })} maxLength={80} /></div>
           </div>
           <DialogFooter><Button onClick={save}>{editing ? "Сохранить" : "Добавить"}</Button></DialogFooter>
         </DialogContent>

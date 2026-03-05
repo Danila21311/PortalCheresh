@@ -218,11 +218,26 @@ const SubmissionsTab = () => {
               </div>
               <div>
                 <Label>Оценка (1-5)</Label>
-                <Input type="number" min={1} max={5} value={gradeVal} onChange={(e) => setGradeVal(e.target.value)} />
+                <Input
+                  type="number"
+                  min={1}
+                  max={5}
+                  inputMode="numeric"
+                  value={gradeVal}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "" || v === "1" || v === "2" || v === "3" || v === "4" || v === "5") setGradeVal(v);
+                    else if (v.length > 1) {
+                      const last = v.slice(-1);
+                      if ("12345".includes(last)) setGradeVal(last);
+                    }
+                  }}
+                />
               </div>
               <div>
                 <Label>Комментарий преподавателя</Label>
-                <Textarea value={teacherComment} onChange={(e) => setTeacherComment(e.target.value)} placeholder="Комментарий к работе..." />
+                <Textarea value={teacherComment} onChange={(e) => setTeacherComment(e.target.value.slice(0, 500))} placeholder="Комментарий к работе..." maxLength={500} className="resize-none" />
+              <p className="text-xs text-muted-foreground">{teacherComment.length}/500</p>
               </div>
             </div>
           )}
@@ -253,7 +268,14 @@ const TeacherGradesTab = () => {
       const subs = subSnap.docs.map(d => ({ id: d.id, name: d.data().name || "" }))
         .sort((a, b) => a.name.localeCompare(b.name));
       setSubjects(subs);
-      setProfiles(profSnap.docs.map(d => ({ user_id: d.id, full_name: d.data().full_name || "" })));
+      setProfiles(
+        profSnap.docs
+          .filter(d => {
+            const role = d.data().role as string | undefined;
+            return role !== "admin" && role !== "teacher";
+          })
+          .map(d => ({ user_id: d.id, full_name: d.data().full_name || "" }))
+      );
     } catch {
       // ignore errors
     } finally {
@@ -315,8 +337,29 @@ const TeacherGradesTab = () => {
                 <SelectContent>{subjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div><Label>Оценка (1-5)</Label><Input type="number" min={1} max={5} value={form.grade} onChange={(e) => setForm({ ...form, grade: e.target.value })} /></div>
-            <div><Label>Комментарий</Label><Textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value })} /></div>
+            <div>
+              <Label>Оценка (1-5)</Label>
+              <Input
+                type="number"
+                min={1}
+                max={5}
+                inputMode="numeric"
+                value={form.grade}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "" || v === "1" || v === "2" || v === "3" || v === "4" || v === "5") setForm({ ...form, grade: v });
+                  else if (v.length > 1) {
+                    const last = v.slice(-1);
+                    if ("12345".includes(last)) setForm({ ...form, grade: last });
+                  }
+                }}
+              />
+            </div>
+            <div>
+              <Label>Комментарий</Label>
+              <Textarea value={form.comment} onChange={(e) => setForm({ ...form, comment: e.target.value.slice(0, 500) })} maxLength={500} className="resize-none" />
+              <p className="text-xs text-muted-foreground">{form.comment.length}/500</p>
+            </div>
           </div>
           <DialogFooter><Button onClick={save}>Выставить</Button></DialogFooter>
         </DialogContent>

@@ -188,16 +188,17 @@ const Profile = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>ФИО</Label>
-                    <Input value={profile.full_name} onChange={(e) => setProfile({ ...profile, full_name: e.target.value })} placeholder="Иванов Иван Иванович" />
+                    <Input value={profile.full_name} onChange={(e) => setProfile({ ...profile, full_name: e.target.value.slice(0, 200) })} placeholder="Иванов Иван Иванович" maxLength={200} />
                   </div>
                   <div className="space-y-2">
                     <Label>Группа</Label>
-                    <Input value={profile.group_name} onChange={(e) => setProfile({ ...profile, group_name: e.target.value })} placeholder="ИТ-21" />
+                    <Input value={profile.group_name} onChange={(e) => setProfile({ ...profile, group_name: e.target.value.slice(0, 80) })} placeholder="ИТ-21" maxLength={80} />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label>О себе</Label>
-                  <Textarea value={profile.bio} onChange={(e) => setProfile({ ...profile, bio: e.target.value })} placeholder="Расскажите о себе..." rows={3} />
+                  <Textarea value={profile.bio} onChange={(e) => setProfile({ ...profile, bio: e.target.value.slice(0, 500) })} placeholder="Расскажите о себе..." rows={3} maxLength={500} className="resize-none" />
+                  <p className="text-xs text-muted-foreground">{profile.bio.length}/500</p>
                 </div>
               </div>
               <Button onClick={save} disabled={saving} className="w-full">
