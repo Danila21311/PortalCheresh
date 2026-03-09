@@ -380,6 +380,8 @@ const SubjectsTab = () => {
 const ScheduleTab = () => {
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [roomOptions, setRoomOptions] = useState<string[]>([]);
+  const [groupOptions, setGroupOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<ScheduleItem | null>(null);
@@ -388,14 +390,24 @@ const ScheduleTab = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [schedSnap, subSnap] = await Promise.all([
+      const [schedSnap, subSnap, hwSnap, usersSnap] = await Promise.all([
         getDocs(query(collection(db, "schedule"), orderBy("start_time"))),
         getDocs(collection(db, "subjects")),
+        getDocs(collection(db, "homework")),
+        getDocs(collection(db, "users")),
       ]);
-      setItems(schedSnap.docs.map(d => ({ id: d.id, ...d.data() } as ScheduleItem))
-        .sort((a, b) => a.day_of_week - b.day_of_week || a.start_time.localeCompare(b.start_time)));
+      const scheduleItems = schedSnap.docs.map(d => ({ id: d.id, ...d.data() } as ScheduleItem))
+        .sort((a, b) => a.day_of_week - b.day_of_week || (a.start_time || "").localeCompare(b.start_time || ""));
+      setItems(scheduleItems);
       setSubjects(subSnap.docs.map(d => ({ id: d.id, ...d.data() } as Subject))
         .sort((a, b) => a.name.localeCompare(b.name)));
+      const rooms = [...new Set(scheduleItems.map(s => s.room).filter(Boolean))] as string[];
+      setRoomOptions(rooms.sort());
+      const groupsFromSchedule = scheduleItems.map(s => s.group_name).filter(Boolean);
+      const groupsFromHw = hwSnap.docs.map(d => d.data().group_name).filter(Boolean);
+      const groupsFromUsers = usersSnap.docs.map(d => d.data().group_name).filter(Boolean);
+      const groups = [...new Set([...groupsFromSchedule, ...groupsFromHw, ...groupsFromUsers])] as string[];
+      setGroupOptions(groups.sort());
     } catch {
       // ignore errors
     } finally {
@@ -508,8 +520,26 @@ const ScheduleTab = () => {
                 <SelectContent>{["Лекция","Практика","Лабораторная","Семинар"].map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div><Label>Аудитория</Label><Input value={form.room} onChange={(e) => setForm({ ...form, room: e.target.value })} /></div>
-            <div><Label>Группа</Label><Input value={form.group_name} onChange={(e) => setForm({ ...form, group_name: e.target.value })} /></div>
+            <div><Label>Аудитория</Label>
+              <Select value={form.room || "_empty"} onValueChange={(v) => setForm({ ...form, room: v === "_empty" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="Выберите аудиторию" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_empty">— Не указано —</SelectItem>
+                  {form.room && !roomOptions.includes(form.room) && <SelectItem value={form.room}>{form.room}</SelectItem>}
+                  {roomOptions.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><Label>Группа</Label>
+              <Select value={form.group_name || "_empty"} onValueChange={(v) => setForm({ ...form, group_name: v === "_empty" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="Выберите группу" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_empty">— Не указано —</SelectItem>
+                  {form.group_name && !groupOptions.includes(form.group_name) && <SelectItem value={form.group_name}>{form.group_name}</SelectItem>}
+                  {groupOptions.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter><Button onClick={save}>{editing ? "Сохранить" : "Добавить"}</Button></DialogFooter>
         </DialogContent>
@@ -682,6 +712,7 @@ const GradesTab = () => {
 const HomeworkTab = () => {
   const [items, setItems] = useState<Homework[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [groupOptions, setGroupOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Homework | null>(null);
@@ -690,14 +721,21 @@ const HomeworkTab = () => {
   const load = async () => {
     setLoading(true);
     try {
-      const [hwSnap, subSnap] = await Promise.all([
+      const [hwSnap, subSnap, schedSnap, usersSnap] = await Promise.all([
         getDocs(collection(db, "homework")),
         getDocs(collection(db, "subjects")),
+        getDocs(collection(db, "schedule")),
+        getDocs(collection(db, "users")),
       ]);
       setItems(hwSnap.docs.map(d => ({ id: d.id, ...d.data() } as Homework))
         .sort((a, b) => b.due_date.localeCompare(a.due_date)));
       setSubjects(subSnap.docs.map(d => ({ id: d.id, ...d.data() } as Subject))
         .sort((a, b) => a.name.localeCompare(b.name)));
+      const fromHw = hwSnap.docs.map(d => d.data().group_name).filter(Boolean);
+      const fromSched = schedSnap.docs.map(d => d.data().group_name).filter(Boolean);
+      const fromUsers = usersSnap.docs.map(d => d.data().group_name).filter(Boolean);
+      const groups = [...new Set([...fromHw, ...fromSched, ...fromUsers])] as string[];
+      setGroupOptions(groups.sort());
     } catch {
       // ignore errors
     } finally {
@@ -807,7 +845,16 @@ const HomeworkTab = () => {
             <div><Label>Название</Label><Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value.slice(0, 200) })} maxLength={200} /></div>
             <div><Label>Описание</Label><Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value.slice(0, 1000) })} maxLength={1000} className="resize-none" /><p className="text-xs text-muted-foreground">{form.description.length}/1000</p></div>
             <div><Label>Срок сдачи</Label><Input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></div>
-            <div><Label>Группа</Label><Input value={form.group_name} onChange={(e) => setForm({ ...form, group_name: e.target.value.slice(0, 80) })} maxLength={80} /></div>
+            <div><Label>Группа</Label>
+              <Select value={form.group_name || "_empty"} onValueChange={(v) => setForm({ ...form, group_name: v === "_empty" ? "" : v })}>
+                <SelectTrigger><SelectValue placeholder="Выберите группу" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_empty">— Не указано —</SelectItem>
+                  {form.group_name && !groupOptions.includes(form.group_name) && <SelectItem value={form.group_name}>{form.group_name}</SelectItem>}
+                  {groupOptions.map((g) => <SelectItem key={g} value={g}>{g}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter><Button onClick={save}>{editing ? "Сохранить" : "Добавить"}</Button></DialogFooter>
         </DialogContent>
